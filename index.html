@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>WebAR Experience</title>
+
+  <script>
+    (function () {
+      'use strict';
+
+      function isMobileDevice() {
+        var ua = navigator.userAgent || navigator.vendor || '';
+        var mobileUAPattern = /Android|iPhone|iPad|iPod|IEMobile|Opera Mini|Mobile|webOS|BlackBerry/i;
+        var isIPadOS13Plus = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+        var uaSaysMobile = mobileUAPattern.test(ua) || isIPadOS13Plus;
+
+        var hasTouch =
+          ('ontouchstart' in window) ||
+          (navigator.maxTouchPoints && navigator.maxTouchPoints > 0);
+
+        var hasCoarsePointer =
+          window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+
+        return uaSaysMobile && (hasTouch || hasCoarsePointer);
+      }
+
+      window.__isMobileDevice = isMobileDevice();
+    })();
+  </script>
+
+  <script>
+    if (window.__isMobileDevice) {
+      var mvModule = document.createElement('script');
+      mvModule.type = 'module';
+      mvModule.src = 'https://unpkg.com/@google/model-viewer@4.3.1/dist/model-viewer.min.js';
+      document.head.appendChild(mvModule);
+
+      var mvLegacy = document.createElement('script');
+      mvLegacy.setAttribute('nomodule', '');
+      mvLegacy.src = 'https://unpkg.com/@google/model-viewer@4.3.1/dist/model-viewer-legacy.js';
+      document.head.appendChild(mvLegacy);
+    }
+  </script>
+
+  <style>
+    /* reset */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #C0D5F0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    /* dvh fallback for mobile chrome resize */
+    model-viewer {
+      width: 100vw;
+      height: 100vh;
+      height: 100dvh;
+      display: block;
+      background-color: #C0D5F0;
+      --poster-color: transparent;
+      --progress-bar-color: transparent; /* custom loader used instead */
+    }
+
+    /* loading overlay; hidden by JS after load */
+    #status-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      background: #C0D5F0;
+      color: #1A365D;
+      text-align: center;
+      padding: 32px;
+      transition: opacity 0.35s ease;
+    }
+
+    .spinner {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      border: 3px solid rgba(26, 54, 93, 0.2);
+      border-top-color: #1A365D;
+      animation: spin 0.9s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    #status-text {
+      font-size: 15px;
+      line-height: 1.5;
+      letter-spacing: 0.01em;
+      color: #1A365D;
+      max-width: 320px;
+    }
+
+    #status-subtext {
+      font-size: 12.5px;
+      color: #2B4C7E;
+      max-width: 280px;
+      line-height: 1.5;
+    }
+
+    #status-overlay.is-error #status-text {
+      color: #C53030;
+      font-weight: 700;
+      font-size: 16px;
+    }
+
+    #status-overlay.is-error .spinner {
+      display: none;
+    }
+
+    #status-overlay.is-error #status-icon {
+      display: flex;
+    }
+
+    #status-icon {
+      display: none;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      border: 2px solid #C53030;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      font-weight: 700;
+      color: #C53030;
+    }
+
+    /* hidden after load; display:none is enough, rest is backup */
+    #status-overlay.is-hidden {
+      display: none;
+      pointer-events: none;
+      opacity: 0;
+    }
+
+    /* AR launch button */
+    #ar-button {
+      position: absolute;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 13px 22px;
+      color: #000000;
+      background: linear-gradient(
+        135deg,
+        rgba(255, 255, 255, 0.45) 0%,
+        rgba(255, 255, 255, 0.15) 100%
+      );
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      backdrop-filter: blur(20px) saturate(180%);
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      border-radius: 999px;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      box-shadow:
+        0 8px 32px 0 rgba(0, 0, 0, 0.2),
+        inset 0 1px 1px 0 rgba(255, 255, 255, 0.6);
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    #ar-button:active {
+      transform: translateX(-50%) scale(0.97);
+    }
+
+    /* only fires if ar attr is removed; JS handles real support check */
+    model-viewer:not([ar]) ~ #ar-button {
+      display: none;
+    }
+
+    @media (max-width: 380px) {
+      #status-text { font-size: 14px; }
+      #ar-button { padding: 12px 18px; font-size: 13px; }
+    }
+
+    #brand-watermark {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 9999;
+      font-size: 15px;
+      font-weight: 700;
+      color: #1A365D;
+      letter-spacing: 0.05em;
+      pointer-events: none;
+    }
+
+    /* shown instead of AR experience on desktop */
+    #desktop-block {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 22px;
+      background: #C0D5F0;
+      color: #2B4C7E;
+      text-align: center;
+      padding: 48px;
+    }
+
+    #desktop-block.is-visible {
+      display: flex;
+    }
+
+    #desktop-block-icon {
+      width: 56px;
+      height: 56px;
+      border-radius: 14px;
+      border: 2px solid #1A365D;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #desktop-block-icon svg {
+      width: 28px;
+      height: 28px;
+      stroke: #1A365D;
+    }
+
+    #desktop-block-title {
+      color: #1A365D;
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      max-width: 420px;
+      line-height: 1.5;
+    }
+
+    #desktop-block-sub {
+      font-size: 13.5px;
+      color: #2B4C7E;
+      max-width: 380px;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="brand-watermark">@webaragency</div>
+
+  <div id="desktop-block" role="alert">
+    <div id="desktop-block-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="5" y="2" width="14" height="20" rx="2"></rect>
+        <line x1="12" y1="18" x2="12.01" y2="18"></line>
+      </svg>
+    </div>
+    <div id="desktop-block-title">
+      This AR experience is exclusively designed for mobile devices. Please open this link on your smartphone or tablet.
+    </div>
+    <div id="desktop-block-sub">
+      Scan this page's URL with your phone's camera, or open it directly in a mobile browser, to view the model in AR.
+    </div>
+  </div>
+
+  <div id="ar-experience">
+
+  <model-viewer
+    id="ar-model"
+    src="model.glb"
+    ios-src="model.usdz"
+    poster="poster.png"
+    alt="3D model AR preview"
+
+    ar
+    ar-modes="scene-viewer webxr quick-look"
+    ar-scale="auto"
+    ar-placement="floor"
+
+    camera-controls
+    touch-action="pan-y"
+    interaction-prompt="auto"
+    shadow-intensity="1"
+    exposure="1"
+    auto-rotate
+  >
+    <button slot="ar-button" id="ar-button">
+      View in your space
+    </button>
+  </model-viewer>
+
+  <div id="status-overlay" role="status" aria-live="polite">
+    <div class="spinner" id="status-spinner" aria-hidden="true"></div>
+    <div id="status-icon" aria-hidden="true">!</div>
+    <div>
+      <div id="status-text">Loading AR Experience... This will take a few minutes.</div>
+      <div id="status-subtext" style="margin-top:10px;">Keep this tab open — larger models can take a moment on slower connections.</div>
+    </div>
+  </div>
+
+  </div><script>
+    (function () {
+      'use strict';
+
+      var arExperience = document.getElementById('ar-experience');
+      var desktopBlock = document.getElementById('desktop-block');
+
+      if (!window.__isMobileDevice) {
+        // desktop: show block instead of the AR experience
+        if (arExperience && arExperience.parentNode) {
+          arExperience.parentNode.removeChild(arExperience);
+        }
+        desktopBlock.classList.add('is-visible');
+        return;
+      }
+
+      var modelViewer = document.getElementById('ar-model');
+      var overlay      = document.getElementById('status-overlay');
+      var statusText   = document.getElementById('status-text');
+      var statusSub    = document.getElementById('status-subtext');
+      var arButton     = document.getElementById('ar-button');
+
+      var hasResolved = false; // avoid double-firing
+
+      function hideOverlay() {
+        if (hasResolved) return;
+        hasResolved = true;
+
+        overlay.style.pointerEvents = 'none';
+        overlay.classList.add('is-hidden');
+
+        // hide AR button if device can't do AR
+        if (!modelViewer.canActivateAR) {
+          arButton.style.display = 'none';
+        }
+      }
+
+      function showError() {
+        if (hasResolved) return;
+        hasResolved = true;
+
+        overlay.classList.add('is-error');
+        overlay.classList.remove('is-hidden');
+        overlay.style.pointerEvents = 'auto';
+
+        statusText.textContent = 'Error: Could not load 3D model.';
+        statusSub.textContent = '';
+      }
+
+      modelViewer.addEventListener('load', hideOverlay);
+
+      modelViewer.addEventListener('error', function (event) {
+        console.error('model-viewer load error:', event && event.detail);
+        showError();
+      });
+
+      // fallback if load/error never fires
+      window.setTimeout(function () {
+        if (!hasResolved) {
+          showError();
+        }
+      }, 45000);
+
+      // defensive: slot="ar-button" already triggers this
+      arButton.addEventListener('click', function () {
+        if (modelViewer.canActivateAR) {
+          modelViewer.activateAR();
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
